@@ -1,0 +1,51 @@
+# calculate dissipation from the longtudinal structure function()
+
+# preliminaries
+dh1=double(h[50])-double(h[49])
+m=bsxfun[@plus,(0:jmax-1)',1:lmax]; # m=j-1+l; midpoint index
+mid=double(m)*0.5*dh1;                # midpoint displacement below cloud top [m]
+r23=(dh1*(1:double(lmax))').^(2/3)
+r23_2=repmat(shiftdim(r23,-1),[jmax 1]); # 2d version of r^(2/3)
+# solve D = N + A*r^(2/3) for noise N and coefficient A
+# x=lsqlin[Cee,Dee,Aye,bee] minimizes the residual Cee*x-Dee subject to A*x<=b
+Aye=-eye(2); # limiting conditions for solution
+bee=zeros(2,1)
+
+fii=find(sum(sum(isfinite(D),2),3)>100); # times that have reasonable ensembles of structure functions()
+
+noise=NaN+zeros(n10min,lmax)
+A=NaN+zeros(n10min,lmax)
+for itime=1:length(fii) # pick a time
+    nj=kmax[fii[itime]]
+    D2=D[fii[itime],:,:]'
+    count2=count[fii[itime],:,:]'
+    ix=mapslices(indmax,(count2.>=200).*D2,1)
+    #mx=[ ((count2.>=200).*D2)[ix[i],i] for i in 1:size(D2)[2] ]
+    D2filt=D2; # D2[displacement, top position]
+    for i=1:size(D2,1)
+        D2filt[(ix[i]+1):end,i]=NaN
+    end
+    jjll=isfinite.(D2filt) .& (r23_2.>10.0); # displacement, position; exclude first r bc adjacent range gates are correlated
+    # good structure functions are found at D2[jjll]
+    #jjll=count2>10
+    #nr=sum(jjll,1)'
+    #njjll=sum(nr)
+
+    for pickm=1:nj-1 # compute structure function for a series of r^2/3 at a single midpoint height
+        jjllmm = jjll & m==pickm
+        if sum(jjllmm)>5
+            Dee=D2filt[jjllmm]; # vectorizes
+            Cee=[ones(sum(jjllmm),1) r23_2[jjllmm]]
+            #x=lsqlin[Cee,Dee,Aye,bee]; # x is [noise A]
+            x = (Cee'*Cee) \ (Cee'*Dee) # least squares regression by left dividing
+            noise[fii[itime],pickm]=x[1]
+            A[fii[itime],pickm]=x[2]
+        end
+    end
+end
+# x[2]=0 probably is bad
+# lots of identically valued A and identically valued noise.
+
+epsz=(A*factrz).^1.5
+semilogy(ydayw10,epsz,'.')
+
